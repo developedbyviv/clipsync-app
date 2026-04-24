@@ -1,0 +1,105 @@
+services:
+  # ── PostgreSQL 16 ────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: clipsync_postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-clipsync}
+      POSTGRES_USER: ${POSTGRES_USER:-clipsync_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-clipsync_pass}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-clipsync_user} -d ${POSTGRES_DB:-clipsync}" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - clipsync_net
+    restart: unless-stopped
+
+  # ── Redis 7 ──────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: clipsync_redis
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - clipsync_net
+    restart: unless-stopped
+
+  # ── API (Node.js + Express + Socket.io) ──────────────────────────────────────
+  api:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+      target: production
+    container_name: clipsync_api
+    ports:
+      - "4000:4000"
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      DATABASE_URL: ${DATABASE_URL:-postgresql://clipsync_user:clipsync_pass@postgres:5432/clipsync}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      # CORS — must include both localhost (Mac) and LAN IP (phone/other device)
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+      # Auth
+      JWT_SECRET: ${JWT_SECRET:-clipsync-dev-secret-change-in-production}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
+      SESSION_SECRET: ${SESSION_SECRET:-clipsync-session-secret-change-in-production}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_CALLBACK_URL: ${GOOGLE_CALLBACK_URL:-http://localhost:4000/api/auth/google/callback}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - clipsync_net
+    restart: unless-stopped
+
+  # ── Frontend (Next.js 14 standalone) ─────────────────────────────────────────
+  frontend:
+    build:
+      context: ./apps/frontend
+      dockerfile: Dockerfile
+      target: runner
+      # CRITICAL: NEXT_PUBLIC_* vars MUST be passed as build args, not env vars.
+      # Next.js bakes these into the JS bundle at build time. Setting them in
+      # `environment:` at runtime has NO effect on browser-side code.
+      args:
+        - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:4000}
+        - NEXT_PUBLIC_SOCKET_URL=${NEXT_PUBLIC_SOCKET_URL:-http://localhost:4000}
+    container_name: clipsync_frontend
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+    depends_on:
+      - api
+    networks:
+      - clipsync_net
+    restart: unless-stopped
+
+# ── Volumes ───────────────────────────────────────────────────────────────────
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+# ── Networks ──────────────────────────────────────────────────────────────────
+networks:
+  clipsync_net:
+    driver: bridge
