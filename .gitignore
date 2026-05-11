@@ -1,3 +1,11 @@
 .env
 node_modules/
 .DS_Store
+
+# ── Bicep / Azure ─────────────────────────────────────────────────────────────
+# Local parameter overrides — never commit secrets
+infra/bicep/**/*.parameters.local.json
+infra/bicep/.env
+infra/bicep/scripts/.env
+# Bicep compiled ARM output (optional — commit if you want reviewable diffs)
+infra/bicep/**/*.json.compiled

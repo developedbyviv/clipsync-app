@@ -1,0 +1,10 @@
+{
+  "aksCluster": "aks",
+  "containerRegistry": "acr",
+  "postgresFlexible": "pg",
+  "redisCache": "redis",
+  "keyVault": "kv",
+  "logAnalytics": "law",
+  "appInsights": "ai",
+  "resourceGroup": "rg"
+}

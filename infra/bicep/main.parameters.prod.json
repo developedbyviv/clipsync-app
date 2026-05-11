@@ -1,0 +1,37 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "environment": {
+      "value": "prod"
+    },
+    "location": {
+      "value": "centralindia"
+    },
+    "projectName": {
+      "value": "clipsync"
+    },
+    "aksNodeCount": {
+      // Same as dev for portfolio — increase to 3+ for real production workloads
+      "value": 2
+    },
+    "aksNodeSize": {
+      // Consider Standard_D2s_v3 for prod (consistent CPU, no bursting limits)
+      "value": "Standard_B2s"
+    },
+    "postgresAdminPassword": {
+      // OPTION A (recommended): Key Vault reference — secret never appears in this file.
+      // Use a separate prod Key Vault with stricter RBAC than the bootstrap KV.
+      "reference": {
+        "keyVault": {
+          "id": "/subscriptions/<subscription-id>/resourceGroups/<bootstrap-rg>/providers/Microsoft.KeyVault/vaults/<bootstrap-kv-name>"
+        },
+        "secretName": "postgres-admin-password-prod"
+      }
+    },
+    "alertEmail": {
+      // Replace with your real email address for Azure Monitor alerts
+      "value": "your-email@example.com"
+    }
+  }
+}

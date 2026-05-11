@@ -1,0 +1,44 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "environment": {
+      "value": "dev"
+    },
+    "location": {
+      "value": "centralindia"
+    },
+    "projectName": {
+      "value": "clipsync"
+    },
+    "aksNodeCount": {
+      "value": 2
+    },
+    "aksNodeSize": {
+      "value": "Standard_B2s"
+    },
+    "postgresAdminPassword": {
+      // OPTION A (recommended): Key Vault reference — secret never appears in this file.
+      // Before first deploy, create the secret manually:
+      //   az keyvault secret set \
+      //     --vault-name <your-bootstrap-keyvault> \
+      //     --name postgres-admin-password \
+      //     --value "<your-password>"
+      // Then fill in the Key Vault resource ID below.
+      //
+      // OPTION B (quick-start): Pass via CLI flag instead:
+      //   az deployment sub create ... --parameters postgresAdminPassword="<your-password>"
+      // This avoids needing a bootstrap Key Vault for the first deploy.
+      "reference": {
+        "keyVault": {
+          "id": "/subscriptions/<subscription-id>/resourceGroups/<bootstrap-rg>/providers/Microsoft.KeyVault/vaults/<bootstrap-kv-name>"
+        },
+        "secretName": "postgres-admin-password"
+      }
+    },
+    "alertEmail": {
+      // Replace with your real email address for Azure Monitor alerts
+      "value": "your-email@example.com"
+    }
+  }
+}
