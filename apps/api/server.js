@@ -1,6 +1,11 @@
 'use strict';
 
+// ── Application Insights — MUST be first import ───────────────────────────────
+// The SDK monkey-patches http, pg, ioredis at require-time.
+// Any require() before this line will NOT be auto-instrumented.
 require('dotenv').config();
+const { initAppInsights } = require('./src/instrumentation/appInsights');
+initAppInsights();
 
 const http = require('http');
 const app = require('./src/app');

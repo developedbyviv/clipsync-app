@@ -1,0 +1,161 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: clipsync-alerts
+  namespace: monitoring
+  labels:
+    # Must match the Prometheus operator's ruleSelector — default label for kube-prometheus-stack
+    release: kube-prometheus-stack
+    app: clipsync
+spec:
+  groups:
+    # ── API alerts ────────────────────────────────────────────────────────────
+    - name: clipsync.api
+      interval: 30s
+      rules:
+        # CRITICAL: API deployment has zero available replicas
+        - alert: ClipSyncAPIPodDown
+          expr: |
+            kube_deployment_status_replicas_available{
+              deployment=~"clipsync-api",
+              namespace=~"clipsync-.*"
+            } == 0
+          for: 1m
+          labels:
+            severity: critical
+            app: clipsync
+          annotations:
+            summary: "ClipSync API has no available pods"
+            description: >
+              Deployment {{ $labels.deployment }} in namespace
+              {{ $labels.namespace }} has 0 available replicas
+              for more than 1 minute. Users cannot create or retrieve clipboards.
+
+        # WARNING: More than 5% of API responses are 5xx errors
+        - alert: ClipSyncHighErrorRate
+          expr: |
+            rate(http_requests_total{
+              job=~"clipsync-.*",
+              status_code=~"5.."
+            }[5m]) /
+            rate(http_requests_total{
+              job=~"clipsync-.*"
+            }[5m]) > 0.05
+          for: 2m
+          labels:
+            severity: warning
+            app: clipsync
+          annotations:
+            summary: "High 5xx error rate on ClipSync API"
+            description: >
+              Error rate is {{ $value | humanizePercentage }} over the last 5 minutes.
+              Check API logs: kubectl logs -l app.kubernetes.io/component=api -n clipsync-{{ $labels.namespace }}
+
+        # WARNING: 95th percentile response time exceeds 2 seconds
+        - alert: ClipSyncHighLatency
+          expr: |
+            histogram_quantile(0.95,
+              rate(http_request_duration_seconds_bucket{
+                job=~"clipsync-.*"
+              }[5m])
+            ) > 2
+          for: 5m
+          labels:
+            severity: warning
+            app: clipsync
+          annotations:
+            summary: "ClipSync API p95 latency > 2 seconds"
+            description: >
+              95th percentile latency is {{ $value | humanizeDuration }}
+              over the last 5 minutes. Consider checking DB connection pool or Redis.
+
+        # WARNING: Frontend deployment has zero pods
+        - alert: ClipSyncFrontendPodDown
+          expr: |
+            kube_deployment_status_replicas_available{
+              deployment=~"clipsync-frontend",
+              namespace=~"clipsync-.*"
+            } == 0
+          for: 1m
+          labels:
+            severity: critical
+            app: clipsync
+          annotations:
+            summary: "ClipSync frontend has no available pods"
+            description: >
+              Deployment {{ $labels.deployment }} in namespace
+              {{ $labels.namespace }} has 0 available replicas.
+
+    # ── Infrastructure alerts ─────────────────────────────────────────────────
+    - name: clipsync.infrastructure
+      interval: 60s
+      rules:
+        # WARNING: AKS node memory usage above 85%
+        - alert: ClipSyncNodeMemoryHigh
+          expr: |
+            (
+              node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes
+            ) / node_memory_MemTotal_bytes > 0.85
+          for: 5m
+          labels:
+            severity: warning
+            app: clipsync
+          annotations:
+            summary: "AKS node memory usage > 85%"
+            description: >
+              Node {{ $labels.instance }} memory usage is
+              {{ $value | humanizePercentage }}. Consider scaling the node pool.
+
+        # CRITICAL: ClipSync pod is crash-looping
+        - alert: ClipSyncPodCrashLooping
+          expr: |
+            rate(kube_pod_container_status_restarts_total{
+              namespace=~"clipsync-.*"
+            }[15m]) * 60 * 15 > 3
+          for: 5m
+          labels:
+            severity: critical
+            app: clipsync
+          annotations:
+            summary: "ClipSync pod is crash looping"
+            description: >
+              Pod {{ $labels.pod }} in {{ $labels.namespace }}
+              has restarted more than 3 times in 15 minutes.
+              Run: kubectl describe pod {{ $labels.pod }} -n {{ $labels.namespace }}
+
+        # WARNING: A ClipSync PVC is more than 80% full
+        - alert: ClipSyncPVCAlmostFull
+          expr: |
+            (
+              kubelet_volume_stats_used_bytes{
+                namespace=~"clipsync-.*"
+              } / kubelet_volume_stats_capacity_bytes{
+                namespace=~"clipsync-.*"
+              }
+            ) > 0.80
+          for: 5m
+          labels:
+            severity: warning
+            app: clipsync
+          annotations:
+            summary: "ClipSync PVC is {{ $value | humanizePercentage }} full"
+            description: >
+              PVC {{ $labels.persistentvolumeclaim }} in
+              {{ $labels.namespace }} is almost full.
+              Expand the PVC or clean up old data.
+
+        # WARNING: AKS node CPU usage above 80%
+        - alert: ClipSyncNodeCPUHigh
+          expr: |
+            100 - (avg by(instance) (
+              rate(node_cpu_seconds_total{mode="idle"}[5m])
+            ) * 100) > 80
+          for: 5m
+          labels:
+            severity: warning
+            app: clipsync
+          annotations:
+            summary: "AKS node CPU usage > 80%"
+            description: >
+              Node {{ $labels.instance }} CPU usage is {{ $value | humanize }}%.
+              Consider scaling the node pool or optimising the workload.

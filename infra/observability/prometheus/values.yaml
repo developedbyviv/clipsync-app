@@ -1,0 +1,112 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# values.yaml — kube-prometheus-stack Helm values for ClipSync.
+# Sized for AKS Standard_B2s nodes (2 vCPU, 4 GB RAM).
+# ─────────────────────────────────────────────────────────────────────────────
+
+prometheusOperator:
+  enabled: true
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+prometheus:
+  prometheusSpec:
+    # Retain 15 days of metrics; cap storage at 8 GB
+    retention: 15d
+    retentionSize: "8GB"
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: 500m
+        memory: 1Gi
+    # Persistent storage for metrics data (survives pod restarts)
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 10Gi
+    # Scrape ServiceMonitors and PodMonitors from ALL namespaces,
+    # including clipsync-dev and clipsync-prod
+    podMonitorNamespaceSelector: {}
+    serviceMonitorNamespaceSelector: {}
+    ruleNamespaceSelector: {}
+
+grafana:
+  enabled: true
+  # IMPORTANT: change this password immediately after first login
+  adminPassword: "clipsync-grafana-2024"
+  persistence:
+    enabled: true
+    size: 2Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 300m
+      memory: 256Mi
+  # Sidecar auto-discovers dashboards from ConfigMaps with label grafana_dashboard=1
+  sidecar:
+    dashboards:
+      enabled: true
+      searchNamespace: ALL
+      label: grafana_dashboard
+      labelValue: "1"
+  grafana.ini:
+    server:
+      root_url: "%(protocol)s://%(domain)s/"
+    auth.anonymous:
+      enabled: false
+    security:
+      # Required to embed Grafana panels in the Azure Workbook
+      allow_embedding: true
+    feature_toggles:
+      enable: publicDashboards
+
+alertmanager:
+  enabled: true
+  alertmanagerSpec:
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 100m
+        memory: 128Mi
+
+nodeExporter:
+  enabled: true
+
+kubeStateMetrics:
+  enabled: true
+
+defaultRules:
+  create: true
+  rules:
+    alertmanager: true
+    # etcd not exposed in AKS managed control plane — disable to avoid false alerts
+    etcd: false
+    kubeApiserverAvailability: true
+    kubeApiserverBurnrate: true
+    kubeApiserverHistogram: true
+    kubeApiserverSlos: true
+    # kube-proxy not available in AKS — disable
+    kubeProxyDashboard: false
+    # kube-scheduler not exposed in AKS managed control plane — disable
+    kubeSchedulerAlerting: false
+    kubeSchedulerRecording: false
+    kubelet: true
+    kubeStateMetrics: true
+    network: true
+    node: true
+    nodeExporterAlerting: true
+    nodeExporterRecording: true
+    prometheus: true

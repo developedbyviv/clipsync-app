@@ -1,0 +1,40 @@
+# servicemonitor.yaml — Tells Prometheus to scrape /metrics from the ClipSync API.
+#
+# How discovery works:
+#   1. This ServiceMonitor lives in the monitoring namespace
+#   2. The label "release: kube-prometheus-stack" matches the Prometheus
+#      operator's serviceMonitorSelector — so Prometheus picks it up
+#   3. namespaceSelector targets clipsync-dev and clipsync-prod
+#   4. selector.matchLabels finds the clipsync-api Service
+#   5. Prometheus scrapes /metrics every 15 seconds via the http port
+#
+# IMPORTANT: /metrics is NOT in the Ingress — it is only reachable
+# inside the cluster via ClusterIP. This prevents public exposure.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: clipsync-api
+  # Must be in the monitoring namespace — where Prometheus looks for ServiceMonitors
+  namespace: monitoring
+  labels:
+    # Must match: kube-prometheus-stack's serviceMonitorSelector
+    release: kube-prometheus-stack
+    app.kubernetes.io/name: clipsync
+    app.kubernetes.io/component: api
+spec:
+  selector:
+    matchLabels:
+      # Matches the labels on the clipsync-api Service created by the Helm chart
+      app.kubernetes.io/name: clipsync
+      app.kubernetes.io/component: api
+  # Scrape from both dev and prod namespaces
+  namespaceSelector:
+    matchNames:
+      - clipsync-dev
+      - clipsync-prod
+  endpoints:
+    - port: http
+      path: /metrics
+      # Scrape every 15 seconds — balanced between freshness and load
+      interval: 15s
+      scrapeTimeout: 10s

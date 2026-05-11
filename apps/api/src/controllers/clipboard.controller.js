@@ -1,6 +1,8 @@
 'use strict';
 
 const clipboardService = require('../services/clipboard.service');
+const { clipboardCreatedTotal, clipboardRetrievedTotal } = require('../instrumentation/metrics');
+const { getClient: getAIClient } = require('../instrumentation/appInsights');
 
 /**
  * POST /api/clipboard
@@ -17,6 +19,26 @@ async function createClipboard(req, res, next) {
       readAndDestroy: Boolean(readAndDestroy),
       userId,
     });
+
+    // Track clipboard creation in Prometheus
+    clipboardCreatedTotal.inc({
+      expires_in: String(expiresIn),
+      read_and_destroy: String(Boolean(readAndDestroy)),
+      authenticated: String(!!req.user),
+    });
+
+    // Track as custom event in Application Insights
+    const aiClient = getAIClient();
+    if (aiClient) {
+      aiClient.trackEvent({
+        name: 'clipboard_created',
+        properties: {
+          expiresIn: String(expiresIn),
+          readAndDestroy: String(Boolean(readAndDestroy)),
+          authenticated: String(!!req.user),
+        },
+      });
+    }
 
     return res.status(201).json(result);
   } catch (err) {
@@ -58,8 +80,16 @@ async function getClipboard(req, res, next) {
     }
 
     const clip = await clipboardService.getClipboard(pin);
+
+    // Track successful retrieval
+    clipboardRetrievedTotal.inc({ found: 'true', expired: 'false' });
+
     return res.status(200).json(clip);
   } catch (err) {
+    // Track not-found / expired retrieval
+    if (err.status === 404 || err.code === 'CLIPBOARD_NOT_FOUND') {
+      clipboardRetrievedTotal.inc({ found: 'false', expired: 'false' });
+    }
     return next(err);
   }
 }

@@ -3,6 +3,7 @@
 const jwt = require('jsonwebtoken');
 const { Server } = require('socket.io');
 const { updateClipboard } = require('../services/clipboard.service');
+const { websocketConnectionsActive } = require('../instrumentation/metrics');
 
 /**
  * Initialise Socket.io on the provided HTTP server.
@@ -51,6 +52,8 @@ function initSocket(httpServer) {
   });
 
   io.on('connection', (socket) => {
+    // Increment active WebSocket connections gauge
+    websocketConnectionsActive.inc();
     console.log(`[Socket] Client connected: ${socket.id} (userId: ${socket.data.userId || 'guest'})`);
 
     /**
@@ -89,6 +92,8 @@ function initSocket(httpServer) {
     });
 
     socket.on('disconnect', (reason) => {
+      // Decrement active WebSocket connections gauge
+      websocketConnectionsActive.dec();
       console.log(`[Socket] Client disconnected: ${socket.id} (${reason})`);
     });
 
