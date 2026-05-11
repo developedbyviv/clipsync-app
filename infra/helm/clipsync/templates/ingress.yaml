@@ -1,0 +1,66 @@
+# ingress.yaml — NGINX Ingress for ClipSync.
+#
+# Route map:
+#   /         → frontend:3000  (Next.js SSR + static)
+#   /api      → api:4000       (REST endpoints)
+#   /socket.io → api:4000      (Socket.io WebSocket — CRITICAL for real-time sync)
+#
+# WebSocket notes:
+#   proxy-read-timeout / proxy-send-timeout must be ≥3600s or Socket.io
+#   long-polling connections will be dropped by NGINX after 60s (default).
+{{- if .Values.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "clipsync.fullname" . }}
+  namespace: {{ include "clipsync.namespace" . }}
+  labels:
+    {{- include "clipsync.labels" . | nindent 4 }}
+  annotations:
+    # Keep WebSocket and long-poll connections alive (Socket.io requires this)
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    # Mark the API service as a WebSocket backend for NGINX
+    nginx.ingress.kubernetes.io/websocket-services: {{ printf "%s-%s" .Chart.Name .Values.api.name | quote }}
+    {{- with .Values.ingress.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- if .Values.ingress.tls }}
+  tls:
+    - hosts:
+        - {{ .Values.ingress.host | quote }}
+      # TLS secret provisioned by cert-manager ClusterIssuer: letsencrypt-prod
+      secretName: {{ .Values.ingress.tlsSecretName }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.ingress.host | quote }}
+      http:
+        paths:
+          # Socket.io WebSocket path — must be FIRST (most specific prefix wins)
+          - path: /socket.io
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ printf "%s-%s" .Chart.Name .Values.api.name }}
+                port:
+                  number: {{ .Values.api.port }}
+          # API REST routes
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ printf "%s-%s" .Chart.Name .Values.api.name }}
+                port:
+                  number: {{ .Values.api.port }}
+          # Frontend — catch-all (must be last)
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ printf "%s-%s" .Chart.Name .Values.frontend.name }}
+                port:
+                  number: {{ .Values.frontend.port }}
+{{- end }}

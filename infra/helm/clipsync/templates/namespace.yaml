@@ -1,0 +1,11 @@
+# namespace.yaml — Creates the Kubernetes namespace for this environment.
+# ArgoCD can also create this via syncOptions.CreateNamespace=true,
+# but having it in the chart makes `helm install` self-contained.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ include "clipsync.namespace" . }}
+  labels:
+    {{- include "clipsync.labels" . | nindent 4 }}
+    # Required for Azure Workload Identity to inject tokens into pods
+    azure.workload.identity/use: "true"

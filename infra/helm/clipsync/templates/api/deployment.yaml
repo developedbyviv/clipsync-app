@@ -1,0 +1,103 @@
+# api/deployment.yaml — Kubernetes Deployment for the ClipSync Node.js API.
+#
+# Security baseline:
+#   • runAsNonRoot + runAsUser 1000 — never run as root
+#   • readOnlyRootFilesystem — prevents runtime file writes (except tmpfs mounts)
+#   • allowPrivilegeEscalation: false — prevents sudo/setuid attacks
+#   • capabilities.drop ALL — removes all Linux capabilities
+#
+# Secrets:
+#   • envFrom secretRef clipsync-secrets — populated by Key Vault CSI driver
+#   • The volume mount on /mnt/secrets-store TRIGGERS the CSI driver to fetch
+#     secrets and create the Kubernetes Secret; without it, envFrom won't work
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ printf "%s-%s" .Chart.Name .Values.api.name }}
+  namespace: {{ include "clipsync.namespace" . }}
+  labels:
+    {{- include "clipsync.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+spec:
+  replicas: {{ .Values.api.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "clipsync.apiSelectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "clipsync.apiSelectorLabels" . | nindent 8 }}
+        # Required label for Azure Workload Identity webhook injection
+        azure.workload.identity/use: "true"
+    spec:
+      # Use the ServiceAccount linked to the Azure AD Workload Identity
+      serviceAccountName: {{ .Values.serviceAccount.name }}
+      # Do not mount the default SA token — we use Workload Identity tokens only
+      automountServiceAccountToken: false
+      containers:
+        - name: api
+          image: {{ include "clipsync.apiImage" . }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.api.port }}
+              protocol: TCP
+          # Non-secret env vars from ConfigMap
+          envFrom:
+            - configMapRef:
+                name: {{ printf "%s-%s-config" .Chart.Name .Values.api.name }}
+            # Secret env vars populated by the Key Vault CSI driver
+            # DATABASE_URL, REDIS_URL, JWT_SECRET, SESSION_SECRET,
+            # APPLICATIONINSIGHTS_CONNECTION_STRING
+            - secretRef:
+                name: clipsync-secrets
+          # Security context — hardened baseline, no root, no privilege escalation
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          # Liveness probe — restarts pod if API stops responding
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.api.livenessProbe.path }}
+              port: http
+            initialDelaySeconds: {{ .Values.api.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.api.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.api.livenessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.api.livenessProbe.failureThreshold }}
+          # Readiness probe — removes pod from Service endpoints until healthy
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.api.readinessProbe.path }}
+              port: http
+            initialDelaySeconds: {{ .Values.api.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.api.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.api.readinessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.api.readinessProbe.failureThreshold }}
+          resources:
+            {{- toYaml .Values.api.resources | nindent 12 }}
+          volumeMounts:
+            # CRITICAL: mounting this volume triggers the CSI driver to fetch
+            # secrets from Key Vault and sync them into the clipsync-secrets Secret
+            - name: secrets-store
+              mountPath: /mnt/secrets-store
+              readOnly: true
+            # tmpfs for Node.js temp files (readOnlyRootFilesystem requires this)
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        # Key Vault CSI driver volume — fetches secrets on pod start
+        - name: secrets-store
+          csi:
+            driver: secrets-store.csi.k8s.io
+            readOnly: true
+            volumeAttributes:
+              secretProviderClass: clipsync-secrets
+        # tmpfs volume for temp files (required with readOnlyRootFilesystem)
+        - name: tmp
+          emptyDir:
+            medium: Memory

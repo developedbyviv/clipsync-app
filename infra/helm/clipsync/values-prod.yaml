@@ -1,0 +1,61 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# values-prod.yaml — Production environment overrides.
+# Applied on top of values.yaml:
+#   helm upgrade --install clipsync ./infra/helm/clipsync \
+#     -f values.yaml -f values-prod.yaml -n clipsync-prod
+#
+# IMPORTANT: image tags are intentionally empty here.
+# The CI/CD pipeline sets them at deploy time:
+#   --set api.image.tag=<git-sha> --set frontend.image.tag=<git-sha>
+# Never deploy :latest to production.
+# ─────────────────────────────────────────────────────────────────────────────
+
+global:
+  environment: prod
+  imageRegistry: acrclipsyncsharedinc.azurecr.io
+
+api:
+  replicaCount: 2
+  image:
+    # Intentionally empty — set by CI pipeline with a pinned image SHA
+    # e.g. --set api.image.tag=abc1234
+    tag: ""
+
+frontend:
+  replicaCount: 2
+  image:
+    # Intentionally empty — set by CI pipeline
+    tag: ""
+
+ingress:
+  host: clipsync.example.com
+  tls: true
+  tlsSecretName: clipsync-tls
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/websocket-services: "clipsync-api"
+    # cert-manager auto-provisions a Let's Encrypt TLS certificate
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 70
+
+keyVault:
+  # Provisioned by Bicep deploy-prod.sh
+  name: kv-clipsync-prod-inc
+  # Get your tenant ID: az account show --query tenantId -o tsv
+  tenantId: REPLACE_WITH_TENANT_ID
+  # Get after creating Workload Identity (Week 4):
+  #   az identity show --name wi-clipsync-prod --resource-group rg-clipsync-prod-inc \
+  #     --query clientId -o tsv
+  clientId: REPLACE_WITH_CLIENT_ID
+
+serviceAccount:
+  annotations:
+    # Workload Identity — links this SA to the Azure AD managed identity
+    azure.workload.identity/client-id: REPLACE_WITH_CLIENT_ID

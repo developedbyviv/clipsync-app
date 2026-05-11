@@ -1,0 +1,59 @@
+# clipsync-prod.yaml — ArgoCD Application for the production environment.
+#
+# Prod does NOT auto-sync. Deployments to production are always manual.
+# This prevents a bad commit on main from automatically reaching users.
+#
+# GitOps flow for prod:
+#   1. PR is reviewed and merged into 'main'
+#   2. GitHub Actions builds the image, tags it with the Git SHA (e.g. :abc1234)
+#   3. GitHub Actions updates values-prod.yaml with the new tag
+#   4. ArgoCD detects the diff but does NOT auto-apply
+#   5. Engineer reviews the diff in ArgoCD UI or CLI, then triggers sync:
+#        argocd app sync clipsync-prod
+#   6. ArgoCD applies Helm templates to clipsync-prod namespace
+#
+# To deploy to prod:
+#   argocd app sync clipsync-prod
+#   argocd app wait clipsync-prod --health
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: clipsync-prod
+  namespace: argocd
+  labels:
+    environment: prod
+    project: clipsync
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  project: clipsync
+
+  source:
+    # TODO: Replace with your actual GitHub repository URL
+    repoURL: https://github.com/developedbyviv/clipsync-app
+    # Watches the main branch — only stable, reviewed code reaches prod
+    targetRevision: main
+    path: infra/helm/clipsync
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-prod.yaml
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: clipsync-prod
+
+  syncPolicy:
+    # NO automated sync for production.
+    # Manual sync required: argocd app sync clipsync-prod
+    syncOptions:
+      - CreateNamespace=true
+      - PrunePropagationPolicy=foreground
+      - ApplyOutOfSyncOnly=true
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 2
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 5m

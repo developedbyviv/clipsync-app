@@ -1,0 +1,118 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# values.yaml — Base defaults for the ClipSync Helm chart.
+# Override these in values-dev.yaml and values-prod.yaml.
+# NEVER put secrets here — all secrets come from Key Vault via CSI driver.
+# ─────────────────────────────────────────────────────────────────────────────
+
+global:
+  environment: dev
+  projectName: clipsync
+  # Container registry login server — set per environment
+  # e.g. acrclipsyncsharedinc.azurecr.io
+  imageRegistry: ""
+  imagePullPolicy: IfNotPresent
+
+# ── API (Node.js + Express + Socket.io) ──────────────────────────────────────
+api:
+  name: api
+  image:
+    repository: clipsync-api
+    tag: latest
+  replicaCount: 1
+  port: 4000
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  env:
+    NODE_ENV: production
+    PORT: "4000"
+    # CORS_ORIGIN is set per environment via configmap
+    CORS_ORIGIN: ""
+  livenessProbe:
+    path: /api/health
+    initialDelaySeconds: 30
+    periodSeconds: 15
+    timeoutSeconds: 5
+    failureThreshold: 3
+  readinessProbe:
+    path: /api/health
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+# ── Frontend (Next.js 14 standalone) ─────────────────────────────────────────
+frontend:
+  name: frontend
+  image:
+    repository: clipsync-frontend
+    tag: latest
+  replicaCount: 1
+  port: 3000
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  livenessProbe:
+    path: /
+    initialDelaySeconds: 30
+    periodSeconds: 15
+    timeoutSeconds: 5
+    failureThreshold: 3
+  readinessProbe:
+    path: /
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+# ── Ingress ───────────────────────────────────────────────────────────────────
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    # Required for Socket.io WebSocket connections to stay alive
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/websocket-services: "clipsync-api"
+  # Hostname — set per environment (e.g. clipsync-dev.example.com)
+  host: ""
+  # TLS — enable in prod with cert-manager
+  tls: false
+  tlsSecretName: clipsync-tls
+
+# ── Horizontal Pod Autoscaler ─────────────────────────────────────────────────
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 3
+  targetCPUUtilizationPercentage: 70
+
+# ── Azure Key Vault CSI Driver ────────────────────────────────────────────────
+# Values populated by the azureKeyvaultSecretsProvider AKS addon.
+# clientId = Workload Identity client ID (from Azure AD app registration).
+# Get these values after Bicep deployment:
+#   az keyvault show --name kv-clipsync-<env>-inc --query id
+#   az account show --query tenantId
+keyVault:
+  # Key Vault name — provisioned by Bicep: kv-clipsync-<env>-inc
+  name: ""
+  # Azure AD tenant ID: az account show --query tenantId -o tsv
+  tenantId: ""
+  # Workload Identity client ID (created in Week 4 with Workload Identity setup)
+  # az identity show --name wi-clipsync-<env> --query clientId -o tsv
+  clientId: ""
+
+# ── Service Account ───────────────────────────────────────────────────────────
+# Workload Identity annotation is added per environment in values-dev/prod.yaml
+serviceAccount:
+  name: clipsync-sa
+  annotations: {}

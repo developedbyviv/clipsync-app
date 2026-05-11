@@ -1,0 +1,65 @@
+# clipsync-dev.yaml — ArgoCD Application for the dev environment.
+#
+# GitOps flow for dev:
+#   1. Developer pushes to the 'develop' branch
+#   2. GitHub Actions builds the Docker image, tags it :latest, pushes to ACR
+#   3. GitHub Actions updates the image tag in values-dev.yaml (or via --set)
+#   4. ArgoCD detects the Git diff (poll interval: 3 minutes)
+#   5. ArgoCD auto-syncs → applies Helm templates to clipsync-dev namespace
+#
+# Automated sync is ENABLED for dev — fast feedback loop without manual steps.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: clipsync-dev
+  namespace: argocd
+  labels:
+    environment: dev
+    project: clipsync
+  annotations:
+    # sync-wave: 1 — deploy after any infrastructure Applications (wave 0)
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  project: clipsync
+
+  source:
+    # TODO: Replace with your actual GitHub repository URL
+    repoURL: https://github.com/developedbyviv/clipsync-app
+    # Watches the develop branch — feature branches merge here before prod
+    targetRevision: develop
+    # Path to the Helm chart within the repo
+    path: infra/helm/clipsync
+    helm:
+      # Apply base values first, then dev overrides
+      valueFiles:
+        - values.yaml
+        - values-dev.yaml
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: clipsync-dev
+
+  syncPolicy:
+    # Automated sync — ArgoCD applies changes without manual intervention
+    automated:
+      # prune: delete Kubernetes resources that are removed from the Helm chart
+      prune: true
+      # selfHeal: revert manual kubectl changes back to Git state
+      selfHeal: true
+      # allowEmpty: prevent accidentally deleting everything if chart renders empty
+      allowEmpty: false
+    syncOptions:
+      # Create the namespace if it doesn't exist (matches namespace.yaml)
+      - CreateNamespace=true
+      # Delete resources in foreground (waits for pods to terminate)
+      - PrunePropagationPolicy=foreground
+      # Only apply resources that have drifted (faster syncs)
+      - ApplyOutOfSyncOnly=true
+      # Respect the Helm release name from the chart
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m

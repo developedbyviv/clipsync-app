@@ -1,0 +1,97 @@
+# frontend/deployment.yaml — Kubernetes Deployment for the ClipSync Next.js frontend.
+#
+# The frontend also mounts the Key Vault secrets volume so that the
+# APPLICATIONINSIGHTS_CONNECTION_STRING secret is available via envFrom.
+# The other secrets (DATABASE_URL etc.) are unused by the frontend but
+# mounting one volume creates the shared Kubernetes Secret for all pods.
+#
+# NEXT_PUBLIC_* env vars are baked at Docker build time — they cannot be
+# changed at runtime. The image must be rebuilt when the API URL changes.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ printf "%s-%s" .Chart.Name .Values.frontend.name }}
+  namespace: {{ include "clipsync.namespace" . }}
+  labels:
+    {{- include "clipsync.labels" . | nindent 4 }}
+    app.kubernetes.io/component: frontend
+spec:
+  replicas: {{ .Values.frontend.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "clipsync.frontendSelectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "clipsync.frontendSelectorLabels" . | nindent 8 }}
+        azure.workload.identity/use: "true"
+    spec:
+      serviceAccountName: {{ .Values.serviceAccount.name }}
+      automountServiceAccountToken: false
+      containers:
+        - name: frontend
+          image: {{ include "clipsync.frontendImage" . }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.frontend.port }}
+              protocol: TCP
+          env:
+            # API URL — within the cluster, frontend calls the API service directly
+            # Format: http://<service-name>.<namespace>.svc.cluster.local:<port>
+            - name: NEXT_PUBLIC_API_URL
+              value: {{ printf "http://%s-%s:%d" .Chart.Name .Values.api.name (.Values.api.port | int) | quote }}
+            - name: NEXT_PUBLIC_SOCKET_URL
+              value: {{ printf "http://%s-%s:%d" .Chart.Name .Values.api.name (.Values.api.port | int) | quote }}
+          # Secrets from Key Vault CSI — includes APPLICATIONINSIGHTS_CONNECTION_STRING
+          envFrom:
+            - secretRef:
+                name: clipsync-secrets
+          # Hardened security context — matches API baseline
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.frontend.livenessProbe.path }}
+              port: http
+            initialDelaySeconds: {{ .Values.frontend.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.frontend.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.frontend.livenessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.frontend.livenessProbe.failureThreshold }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.frontend.readinessProbe.path }}
+              port: http
+            initialDelaySeconds: {{ .Values.frontend.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.frontend.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.frontend.readinessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.frontend.readinessProbe.failureThreshold }}
+          resources:
+            {{- toYaml .Values.frontend.resources | nindent 12 }}
+          volumeMounts:
+            - name: secrets-store
+              mountPath: /mnt/secrets-store
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+            # Next.js standalone writes cache files to .next — needs writable mount
+            - name: next-cache
+              mountPath: /app/.next/cache
+      volumes:
+        - name: secrets-store
+          csi:
+            driver: secrets-store.csi.k8s.io
+            readOnly: true
+            volumeAttributes:
+              secretProviderClass: clipsync-secrets
+        - name: tmp
+          emptyDir:
+            medium: Memory
+        - name: next-cache
+          emptyDir: {}

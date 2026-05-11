@@ -1,0 +1,48 @@
+# clipsync-project.yaml — ArgoCD AppProject scoping ClipSync to its namespaces.
+#
+# An AppProject restricts which repos, clusters, and namespaces ArgoCD
+# Applications in this project can deploy to. This is a security boundary —
+# a mis-configured Application cannot accidentally deploy to kube-system.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: clipsync
+  namespace: argocd
+  labels:
+    project: clipsync
+    managed-by: argocd
+spec:
+  description: ClipSync online clipboard — dev and prod GitOps project
+
+  # Allowed source repositories.
+  # TODO: Replace * with your specific repo URL for production hardening:
+  #   https://github.com/developedbyviv/clipsync-app
+  sourceRepos:
+    - '*'
+
+  # Allowed destination clusters and namespaces.
+  # Only clipsync-dev and clipsync-prod namespaces are reachable.
+  destinations:
+    - namespace: clipsync-dev
+      server: https://kubernetes.default.svc
+    - namespace: clipsync-prod
+      server: https://kubernetes.default.svc
+
+  # Allow ArgoCD to create Namespaces at cluster scope (required for first deploy)
+  clusterResourceWhitelist:
+    - group: ''
+      kind: Namespace
+
+  # Allow any namespace-scoped resource within clipsync-* namespaces
+  namespaceResourceWhitelist:
+    - group: '*'
+      kind: '*'
+
+  # RBAC roles within this project
+  roles:
+    # dev-deployer: can trigger syncs on dev applications (for CI pipelines)
+    - name: dev-deployer
+      description: Allows triggering sync on dev applications (used by GitHub Actions)
+      policies:
+        - p, proj:clipsync:dev-deployer, applications, sync, clipsync/clipsync-dev, allow
+        - p, proj:clipsync:dev-deployer, applications, get, clipsync/clipsync-dev, allow

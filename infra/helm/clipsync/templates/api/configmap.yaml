@@ -1,0 +1,17 @@
+# api/configmap.yaml — Non-secret environment variables for the API.
+# Secrets (DATABASE_URL, REDIS_URL, JWT_SECRET, etc.) come from
+# the clipsync-secrets Kubernetes Secret, which is populated by the
+# Key Vault CSI driver via SecretProviderClass — never stored here.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ printf "%s-%s-config" .Chart.Name .Values.api.name }}
+  namespace: {{ include "clipsync.namespace" . }}
+  labels:
+    {{- include "clipsync.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+data:
+  NODE_ENV: {{ .Values.api.env.NODE_ENV | quote }}
+  PORT: {{ .Values.api.env.PORT | quote }}
+  # CORS_ORIGIN: comma-separated list of allowed frontend origins
+  CORS_ORIGIN: {{ .Values.api.env.CORS_ORIGIN | quote }}

@@ -1,0 +1,46 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# values-dev.yaml — Dev environment overrides.
+# Applied on top of values.yaml:
+#   helm upgrade --install clipsync ./infra/helm/clipsync \
+#     -f values.yaml -f values-dev.yaml -n clipsync-dev
+# ─────────────────────────────────────────────────────────────────────────────
+
+global:
+  environment: dev
+  imageRegistry: acrclipsyncsharedinc.azurecr.io
+
+api:
+  replicaCount: 1
+  image:
+    # Dev always uses latest — CI pipeline pushes :latest on develop branch
+    tag: latest
+  env:
+    CORS_ORIGIN: "http://clipsync-dev.example.com,http://localhost:3000"
+
+frontend:
+  replicaCount: 1
+  image:
+    tag: latest
+
+ingress:
+  host: clipsync-dev.example.com
+  tls: false
+
+autoscaling:
+  enabled: false
+
+keyVault:
+  # Provisioned by Bicep deploy-dev.sh
+  name: kv-clipsync-dev-inc
+  # Get your tenant ID: az account show --query tenantId -o tsv
+  tenantId: REPLACE_WITH_TENANT_ID
+  # Get after creating Workload Identity (Week 4):
+  #   az identity show --name wi-clipsync-dev --resource-group rg-clipsync-dev-inc \
+  #     --query clientId -o tsv
+  clientId: REPLACE_WITH_CLIENT_ID
+
+serviceAccount:
+  annotations:
+    # Workload Identity — links this SA to the Azure AD managed identity
+    # Value = clientId from az identity show above
+    azure.workload.identity/client-id: REPLACE_WITH_CLIENT_ID

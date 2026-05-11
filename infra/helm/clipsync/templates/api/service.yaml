@@ -1,0 +1,19 @@
+# api/service.yaml — ClusterIP service for the ClipSync API.
+# Exposed internally only; the Ingress routes /api and /socket.io to this service.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ printf "%s-%s" .Chart.Name .Values.api.name }}
+  namespace: {{ include "clipsync.namespace" . }}
+  labels:
+    {{- include "clipsync.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: {{ .Values.api.port }}
+      targetPort: http
+      protocol: TCP
+  selector:
+    {{- include "clipsync.apiSelectorLabels" . | nindent 4 }}
